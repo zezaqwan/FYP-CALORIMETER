@@ -1,249 +1,176 @@
-# ==============================================================================
-# UNIFIED GOOGLE COLAB CALORIMETRY LAB & AUTOMATIC BAR CHART GENERATOR
-# ==============================================================================
-
-import csv
-import datetime
-import math
-import os
-import glob
+import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from IPython.display import display, Image
+import math
+import datetime
 
 # --- CONFIGURATION & DATABASE ---
 WATER_SPECIFIC_HEAT = 4.184  # J/(g·°C)
 
 THEORETICAL_C = {
-    "aluminum": 0.897,
-    "brass": 0.380,
-    "copper": 0.385,
-    "iron": 0.450,
-    "lead": 0.128,
-    "nickel": 0.444,
-    "steel": 0.490,
-    "tin": 0.227,
-    "titanium": 0.523,
-    "zinc": 0.387
+    "Aluminum": 0.897,
+    "Brass": 0.380,
+    "Copper": 0.385,
+    "Iron": 0.450,
+    "Lead": 0.128,
+    "Nickel": 0.444,
+    "Steel": 0.490,
+    "Tin": 0.227,
+    "Titanium": 0.523,
+    "Zinc": 0.387,
+    "Custom / Other": 0.0
 }
 
+st.set_page_config(page_title="Calorimetry Lab Calculator", page_icon="🧪", layout="wide")
 
-def get_float_input(prompt: str, min_val: float = None, max_val: float = None) -> float:
-    """Safely handles numeric user inputs with boundary checks."""
-    while True:
-        raw = input(prompt).strip()
-        if raw.lower() == 'q':
-            return None
-        try:
-            val = float(raw)
-            if min_val is not None and val < min_val:
-                print(f"  [ERROR] Value must be >= {min_val}.")
-                continue
-            if max_val is not None and val > max_val:
-                print(f"  [ERROR] Value must be <= {max_val}.")
-                continue
-            return val
-        except ValueError:
-            print("  [ERROR] Please enter a valid number (or 'q' to quit).")
+st.title("🧪 Calorimetry Lab & Specific Heat Calculator")
+st.markdown("Record experimental calorimetry trials, calibrate vessel heat capacity, calculate statistical metrics, and generate visual charts.")
 
+# --- INITIALIZE SESSION STATE ---
+if "trials" not in st.session_state:
+    st.session_state.trials = []
 
-def calibrate_cup_wizard() -> float:
-    """Calculates custom calorimeter vessel heat capacity (C_cal) via hot/cold water mixing."""
-    print("\n" + "=" * 60)
-    print("      CALORIMETER CUP CALIBRATION WIZARD (OPTIONAL)      ")
-    print("=" * 60)
-    print("Mix known masses of hot and cold water to find cup capacity (C_cal).")
+# --- SIDEBAR: SETUP & CALIBRATION WIZARD ---
+st.sidebar.header("⚙️ Experiment Setup")
 
-    use_wiz = input("Run calibration wizard? (y/n, default 'n'): ").lower().strip()
-    if use_wiz != 'y':
-        return 10.0  # Default estimate for 2 nested styrofoam cups
+material_name = st.sidebar.selectbox("Select Specimen Material", list(THEORETICAL_C.keys()))
+c_theoretical = THEORETICAL_C[material_name]
 
-    m_cold = get_float_input("Mass of cold water in cup (g): ", min_val=0.1)
-    if m_cold is None: return 10.0
-    T_cold = get_float_input("Initial cold water temp (°C): ")
-    if T_cold is None: return 10.0
-    m_hot = get_float_input("Mass of hot water added (g): ", min_val=0.1)
-    if m_hot is None: return 10.0
-    T_hot = get_float_input("Initial hot water temp (°C): ")
-    if T_hot is None: return 10.0
-    T_final = get_float_input("Equilibrium final temp (°C): ", min_val=T_cold, max_val=T_hot)
-    if T_final is None: return 10.0
+if material_name == "Custom / Other":
+    c_theoretical = st.sidebar.number_input("Enter Theoretical c (J/g·°C)", min_value=0.0, value=0.0, step=0.01)
 
-    # Energy Balance: Heat lost by hot water = Heat gained by cold water + Heat gained by cup
-    q_lost_hot = m_hot * WATER_SPECIFIC_HEAT * (T_hot - T_final)
-    q_gained_cold = m_cold * WATER_SPECIFIC_HEAT * (T_final - T_cold)
+m_sample = st.sidebar.number_input("Sample Mass m_s (g)", min_value=0.1, value=65.0, step=0.1)
+m_water = st.sidebar.number_input("Water Mass m_w (g)", min_value=0.1, value=120.0, step=0.1)
 
-    c_cal_exp = (q_lost_hot - q_gained_cold) / (T_final - T_cold)
-    c_cal_exp = max(0.0, c_cal_exp)  # Safeguard non-negative capacity
+st.sidebar.markdown("---")
+st.sidebar.subheader("☕ Vessel Calibration (C_cal)")
+use_calibration = st.sidebar.checkbox("Run Cup Calibration Wizard", value=False)
 
-    print(f"\n✔ Calibration complete! Measured C_cal = {c_cal_exp:.2f} J/°C\n")
-    return c_cal_exp
+C_cal = 10.0  # Default estimate
 
-
-def display_chart_from_csv(csv_filename: str, material_name: str):
-    """Reads saved CSV using Pandas and renders the bar chart directly in Colab."""
-    if not os.path.exists(csv_filename):
-        print(f"❌ File '{csv_filename}' not found.")
-        return
-
-    try:
-        df = pd.read_csv(csv_filename)
-        if df.empty:
-            print("❌ CSV file is empty. Please record at least 1 trial.")
-            return
-
-        trials = [f"Trial {int(row['Trial'])}" for _, row in df.iterrows()]
-        exp_c = [float(row['c_exp_J_gC']) for _, row in df.iterrows()]
-
-        plt.figure(figsize=(8, 5))
-        plt.bar(trials, exp_c, color='skyblue', edgecolor='black', label='Experimental c')
-
-        # Check and plot theoretical reference line
-        first_theo = str(df['c_theo_J_gC'].iloc[0])
-        if first_theo != "N/A" and first_theo != "nan":
-            theo_val = float(first_theo)
-            if theo_val > 0:
-                plt.axhline(y=theo_val, color='r', linestyle='--', linewidth=2,
-                            label=f'Theoretical ({material_name.title()})')
-
-        plt.ylabel("Specific Heat Capacity (J/g·°C)")
-        plt.xlabel("Experimental Trials")
-        plt.title(f"Calorimetry Results: {material_name.title()}")
-        plt.legend()
-        plt.grid(axis='y', linestyle=':', alpha=0.7)
-
-        # Save and show directly in output cell
-        plot_path = csv_filename.replace('.csv', '_chart.png')
-        plt.savefig(plot_path, dpi=300)
-
-        print(f"\n📊 AUTOMATICALLY DISPLAYING BAR CHART:")
-        plt.show()
-        plt.close()
-
-    except Exception as e:
-        print(f"❌ Error generating plot: {e}")
-
-
-# --- MAIN EXPERIMENTAL RUNNER ---
-def main():
-    print("=" * 60)
-    print("     LIVE CALORIMETRY LAB & SPECIFIC HEAT CALCULATOR     ")
-    print("=" * 60)
-
-    # 1. SETUP SPECIMEN & CALORIMETER
-    mat_name = input("\nEnter Material Name (e.g., Steel, Copper, Aluminum): ").strip()
-    c_theoretical = THEORETICAL_C.get(mat_name.lower(), 0.0)
-
-    m_sample = get_float_input("Enter Sample Mass m_s (grams): ", min_val=0.1)
-    if m_sample is None: return
-
-    m_water = get_float_input("Enter Water Mass m_w (grams): ", min_val=0.1)
-    if m_water is None: return
-
-    # Run calibration wizard or return default
-    C_cal = calibrate_cup_wizard()
-
-    csv_filename = f"calorimetry_{mat_name.lower().replace(' ', '_')}.csv"
-    headers = [
-        "Trial", "Timestamp", "Sample_Mass_g", "Water_Mass_g",
-        "T_sample_init_C", "T_water_init_C", "T_final_C",
-        "Q_gained_J", "c_exp_J_gC", "c_theo_J_gC", "Percent_Error_pct"
-    ]
-
-    if not os.path.exists(csv_filename):
-        with open(csv_filename, mode='w', newline='') as f:
-            csv.writer(f).writerow(headers)
-        print(f"[INFO] New dataset initialized: '{csv_filename}'")
+if use_calibration:
+    m_cold = st.sidebar.number_input("Cold Water Mass (g)", min_value=0.1, value=100.0)
+    T_cold = st.sidebar.number_input("Cold Water Temp (°C)", value=22.0)
+    m_hot = st.sidebar.number_input("Hot Water Mass (g)", min_value=0.1, value=100.0)
+    T_hot = st.sidebar.number_input("Hot Water Temp (°C)", value=80.0)
+    T_mix_final = st.sidebar.number_input("Mix Final Temp (°C)", min_value=T_cold, max_value=T_hot, value=48.0)
+    
+    q_lost_hot = m_hot * WATER_SPECIFIC_HEAT * (T_hot - T_mix_final)
+    q_gained_cold = m_cold * WATER_SPECIFIC_HEAT * (T_mix_final - T_cold)
+    
+    if T_mix_final > T_cold:
+        c_cal_calc = (q_lost_hot - q_gained_cold) / (T_mix_final - T_cold)
+        C_cal = max(0.0, c_cal_calc)
+        st.sidebar.success(f"Calibrated C_cal: **{C_cal:.2f} J/°C**")
     else:
-        print(f"[INFO] Appending to existing dataset: '{csv_filename}'")
+        st.sidebar.warning("Final temp must be > cold water temp.")
+else:
+    C_cal = st.sidebar.number_input("Calorimeter Heat Capacity C_cal (J/°C)", min_value=0.0, value=10.0, step=1.0)
 
-    print("\n" + "=" * 60)
-    print("BEGIN ENTERING READINGS (Type 'q' at any prompt to quit)")
-    print("=" * 60)
+# --- MAIN PANEL: DATA ENTRY ---
+col1, col2 = st.columns([1, 1])
 
-    trials_data = []
-    entry_num = 1
+with col1:
+    st.subheader("📝 Record Trial Reading")
+    T_sample_init = st.number_input("Initial Hot Sample Temp Ts (°C)", value=99.5, step=0.1)
+    T_water_init = st.number_input("Initial Cold Water Temp Tw (°C)", value=22.0, step=0.1)
+    T_final = st.number_input("Measured Equilibrium Final Temp Tf (°C)", value=26.8, step=0.1)
 
-    # 2. EXPERIMENTAL DATA ENTRY LOOP
-    while True:
-        print(f"\n--- TRIAL #{entry_num} ---")
+    if st.button("➕ Add Trial Reading", use_container_width=True):
+        if T_final <= T_water_init:
+            st.error("Error: Final temperature (Tf) must be greater than initial water temp (Tw).")
+        elif T_sample_init <= T_final:
+            st.error("Error: Initial sample temp (Ts) must be greater than final temp (Tf).")
+        else:
+            q_water = m_water * WATER_SPECIFIC_HEAT * (T_final - T_water_init)
+            q_cal = C_cal * (T_final - T_water_init)
+            q_gained = q_water + q_cal
 
-        T_sample_init = get_float_input("Initial Hot Sample Temp Ts (°C): ")
-        if T_sample_init is None: break
+            delta_T_sample = T_sample_init - T_final
+            c_experimental = q_gained / (m_sample * delta_T_sample)
 
-        T_water_init = get_float_input("Initial Cold Water Temp Tw (°C): ")
-        if T_water_init is None: break
+            pct_error = None
+            if c_theoretical > 0:
+                pct_error = abs(c_experimental - c_theoretical) / c_theoretical * 100
 
-        T_final = get_float_input("Measured Equilibrium Final Temp Tf (°C): ",
-                                  min_val=T_water_init, max_val=T_sample_init)
-        if T_final is None: break
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
 
-        # 3. THERMAL CALCULATIONS
-        q_water = m_water * WATER_SPECIFIC_HEAT * (T_final - T_water_init)
-        q_cal = C_cal * (T_final - T_water_init)
-        q_gained = q_water + q_cal
+            trial_number = len(st.session_state.trials) + 1
+            st.session_state.trials.append({
+                "Trial": trial_number,
+                "Time": timestamp,
+                "Sample Mass (g)": m_sample,
+                "Water Mass (g)": m_water,
+                "Ts (°C)": T_sample_init,
+                "Tw (°C)": T_water_init,
+                "Tf (°C)": T_final,
+                "Q Gained (J)": round(q_gained, 2),
+                "c_exp (J/g·°C)": round(c_experimental, 4),
+                "c_theo (J/g·°C)": round(c_theoretical, 4) if c_theoretical > 0 else "N/A",
+                "Error (%)": round(pct_error, 2) if pct_error is not None else "N/A"
+            })
+            st.success(f"Trial #{trial_number} added successfully!")
 
-        delta_T_sample = T_sample_init - T_final
-        c_experimental = q_gained / (m_sample * delta_T_sample)
+with col2:
+    st.subheader("📊 Session Control")
+    if st.button("🗑️ Clear All Trials", use_container_width=True):
+        st.session_state.trials = []
+        st.rerun()
 
-        pct_error = None
-        if c_theoretical > 0:
-            pct_error = abs(c_experimental - c_theoretical) / c_theoretical * 100
+# --- DISPLAY TRIALS TABLE & SUMMARY ---
+if st.session_state.trials:
+    df = pd.DataFrame(st.session_state.trials)
+    
+    st.markdown("---")
+    st.subheader("📋 Experimental Readings Log")
+    st.dataframe(df, use_container_width=True)
 
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    c_list = [row["c_exp (J/g·°C)"] for row in st.session_state.trials]
+    mean_c = sum(c_list) / len(c_list)
+    
+    std_dev = 0.0
+    if len(c_list) > 1:
+        variance = sum((x - mean_c) ** 2 for x in c_list) / (len(c_list) - 1)
+        std_dev = math.sqrt(variance)
 
-        # 4. LOG RESULTS TO CSV
-        with open(csv_filename, mode='a', newline='') as f:
-            csv.writer(f).writerow([
-                entry_num, timestamp, m_sample, m_water,
-                T_sample_init, T_water_init, T_final,
-                round(q_gained, 2), round(c_experimental, 4),
-                round(c_theoretical, 4) if c_theoretical > 0 else "N/A",
-                f"{pct_error:.2f}" if pct_error is not None else "N/A"
-            ])
+    overall_error = None
+    if c_theoretical > 0:
+        overall_error = abs(mean_c - c_theoretical) / c_theoretical * 100
 
-        trials_data.append({
-            "trial": entry_num,
-            "c_exp": c_experimental
-        })
+    st.markdown("### 📈 Session Experimental Summary")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Trials", len(c_list))
+    m2.metric("Mean Specific Heat", f"{mean_c:.4f} J/g·°C")
+    m3.metric("Standard Deviation", f"±{std_dev:.4f}" if len(c_list) > 1 else "N/A")
+    m4.metric("Overall Error", f"{overall_error:.2f}%" if overall_error is not None else "N/A")
 
-        # Display trial outputs
-        print("-" * 45)
-        print(f"Heat Gained by System (Q) : {q_gained:.2f} J")
-        print(f"Exp. Specific Heat (c)    : {c_experimental:.4f} J/(g·°C)")
-        if c_theoretical > 0:
-            print(f"Theo. Specific Heat (c)   : {c_theoretical:.4f} J/(g·°C)")
-            print(f"Trial Error               : {pct_error:.2f}%")
-        print("-" * 45)
-        print(f"✔ Trial #{entry_num} saved successfully.")
+    st.markdown("### 📊 Specific Heat Comparison Chart")
+    fig, ax = plt.subplots(figsize=(8, 4))
+    
+    trial_labels = [f"Trial {t['Trial']}" for t in st.session_state.trials]
+    bars = ax.bar(trial_labels, c_list, color='skyblue', edgecolor='black', label='Experimental c')
+    
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 0.01, f"{yval:.4f}", ha='center', va='bottom', fontsize=9)
 
-        entry_num += 1
+    if c_theoretical > 0:
+        ax.axhline(y=c_theoretical, color='r', linestyle='--', linewidth=2, label=f'Theoretical ({material_name})')
 
-    # 5. SESSION SUMMARY & AUTOMATIC CHART DISPLAY
-    if trials_data:
-        c_list = [t['c_exp'] for t in trials_data]
-        mean_c = sum(c_list) / len(c_list)
+    ax.set_ylabel("Specific Heat Capacity (J/g·°C)")
+    ax.set_title(f"Calorimetry Results: {material_name}")
+    ax.legend(loc='lower right')
+    ax.grid(axis='y', linestyle=':', alpha=0.7)
+    
+    max_y = max(max(c_list), c_theoretical if c_theoretical > 0 else 0) * 1.25
+    ax.set_ylim(0, max_y)
+    
+    st.pyplot(fig)
 
-        print("\n" + "=" * 60)
-        print("                SESSION EXPERIMENTAL SUMMARY               ")
-        print("=" * 60)
-        print(f"Total Trials Recorded    : {len(trials_data)}")
-        print(f"Mean Specific Heat (c)   : {mean_c:.4f} J/(g·°C)")
-
-        if len(c_list) > 1:
-            variance = sum((x - mean_c) ** 2 for x in c_list) / (len(c_list) - 1)
-            std_dev = math.sqrt(variance)
-            print(f"Sample Standard Dev. (s) : ±{std_dev:.4f} J/(g·°C)")
-
-        if c_theoretical > 0:
-            overall_error = abs(mean_c - c_theoretical) / c_theoretical * 100
-            print(f"Overall Dataset Error    : {overall_error:.2f}%")
-        print("=" * 60)
-
-        # Plot bar chart directly from the saved CSV file
-        display_chart_from_csv(csv_filename, mat_name)
-
-    print(f"\n[COMPLETED] Session ended. CSV file saved as '{csv_filename}'.\n")
-
-if __name__ == "__main__":
-    main()
+    csv_data = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Data CSV",
+        data=csv_data,
+        file_name=f"calorimetry_{material_name.lower().replace(' ', '_')}.csv",
+        mime='text/csv'
+    )
