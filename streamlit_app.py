@@ -144,15 +144,26 @@ if st.session_state.trials:
     m3.metric("Standard Deviation", f"±{std_dev:.4f}" if len(c_list) > 1 else "N/A")
     m4.metric("Overall Error", f"{overall_error:.2f}%" if overall_error is not None else "N/A")
 
-    st.markdown("### 📊 Specific Heat Comparison Chart")
+    st.markdown("### 📊 Specific Heat Plot Graph")
     fig, ax = plt.subplots(figsize=(8, 4))
     
     trial_labels = [f"Trial {t['Trial']}" for t in st.session_state.trials]
-    bars = ax.bar(trial_labels, c_list,marker='o',linestyle='-',color='#1f77b4', linewidth=2 , label='Experimental c')
     
-    for bar in bars:
-        yval = bar.get_height()
-        ax.bar(bar.get_x() + bar.get_width()/2.0, yval + 0.01, f"{yval:.4f}", ha='center', va='bottom', fontsize=9)
+    # Plot experimental line with circular markers
+    ax.plot(
+        trial_labels, 
+        c_list, 
+        marker='o', 
+        linestyle='-', 
+        color='#1f77b4', 
+        linewidth=2, 
+        markersize=8, 
+        label='Experimental c'
+    )
+    
+    # Draw values above points
+    for x_val, y_val in zip(trial_labels, c_list):
+        ax.text(x_val, y_val + 0.015, f"{y_val:.4f}", ha='center', va='bottom', fontsize=9, fontweight='bold')
 
     if c_theoretical > 0:
         ax.axhline(y=c_theoretical, color='r', linestyle='--', linewidth=2, label=f'Theoretical ({material_name})')
@@ -160,7 +171,7 @@ if st.session_state.trials:
     ax.set_ylabel("Specific Heat Capacity (J/g·°C)")
     ax.set_title(f"Calorimetry Results: {material_name}")
     ax.legend(loc='lower right')
-    ax.grid(axis='y', linestyle=':', alpha=0.7)
+    ax.grid(True, linestyle=':', alpha=0.7)
     
     max_y = max(max(c_list), c_theoretical if c_theoretical > 0 else 0) * 1.25
     ax.set_ylim(0, max_y)
