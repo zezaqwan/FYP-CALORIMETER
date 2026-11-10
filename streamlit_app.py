@@ -148,11 +148,11 @@ if st.session_state.trials:
     fig, ax = plt.subplots(figsize=(8, 4))
     
     trial_labels = [f"Trial {t['Trial']}" for t in st.session_state.trials]
-    bars = ax.bar(trial_labels, c_list, color='skyblue', edgecolor='black', label='Experimental c')
+    bars = ax.bar(trial_labels, c_list,marker='o',linestyle='-',color='#1f77b4', linewidth=2 , label='Experimental c')
     
     for bar in bars:
         yval = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 0.01, f"{yval:.4f}", ha='center', va='bottom', fontsize=9)
+        ax.bar(bar.get_x() + bar.get_width()/2.0, yval + 0.01, f"{yval:.4f}", ha='center', va='bottom', fontsize=9)
 
     if c_theoretical > 0:
         ax.axhline(y=c_theoretical, color='r', linestyle='--', linewidth=2, label=f'Theoretical ({material_name})')
